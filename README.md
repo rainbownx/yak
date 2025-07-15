@@ -15,7 +15,7 @@
 
 ```bash
 yay -S yak
-
+```
 ## 🔧 Easy Install Script
 
 To install `yak` manually without an AUR helper:
