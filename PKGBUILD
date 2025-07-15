@@ -1,0 +1,15 @@
+# Maintainer: Noah Ramkissoon nohramkissoon1@gmail.com
+pkgname=yak
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="A simple AUR helper written in Bash using Pacman-like flags"
+arch=('any')
+url="https://github.com/yourusername/yak"
+license=('MIT')
+depends=('bash' 'git' 'pacman' 'jq' 'curl')
+source=("yak")
+md5sums=('SKIP')
+
+package() {
+    install -Dm755 "$srcdir/yak" "$pkgdir/usr/bin/yak"
+}
