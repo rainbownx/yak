@@ -15,3 +15,10 @@
 
 ```bash
 yay -S yak
+
+## 🔧 Easy Install Script
+
+To install `yak` manually without an AUR helper:
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/rainbownx/yak/main/install.sh)
