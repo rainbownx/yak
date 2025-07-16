@@ -1,0 +1,207 @@
+#!/bin/bash
+
+AUR_URL="https://aur.archlinux.org"
+BUILD_DIR="$HOME/build_dir"
+mkdir -p "$BUILD_DIR"
+
+# Colors
+YELLOW='\033[1;33m'
+GREEN='\033[1;32m'
+BLUE='\033[1;34m'
+RESET='\033[0m'
+
+version="yak 1.0.0"
+
+print_info() {
+    echo -e "${BLUE}[INFO]${RESET} $1"
+}
+
+print_warn() {
+    echo -e "${YELLOW}[WARN]${RESET} $1"
+}
+
+print_error() {
+    echo -e "\033[1;31m[ERROR]\033[0m $1"
+}
+
+full_upgrade() {
+    print_info "Updating system packages (Pacman)..."
+    sudo pacman -Syu --noconfirm
+
+    print_info "Checking AUR packages for updates..."
+    aur_updates=()
+
+    # List all installed AUR packages
+    mapfile -t aur_installed < <(pacman -Qm | awk '{print $1}')
+    for pkg in "${aur_installed[@]}"; do
+        # Get local version
+        local_ver=$(pacman -Q "$pkg" 2>/dev/null | awk '{print $2}')
+        # Get latest AUR version from JSON
+        aur_info=$(curl -s "${AUR_URL}/rpc/?v=5&type=info&arg=${pkg}")
+        aur_ver=$(echo "$aur_info" | jq -r '.results.Version // empty')
+        if [[ -z "$aur_ver" ]]; then
+            print_warn "Failed to fetch version for $pkg, skipping."
+            continue
+        fi
+
+        if [[ "$aur_ver" != "$local_ver" ]]; then
+            print_info "Update available for $pkg: $local_ver -> $aur_ver"
+            aur_updates+=("$pkg")
+        else
+            print_info "$pkg is up to date."
+        fi
+    done
+
+    if [[ ${#aur_updates[@]} -eq 0 ]]; then
+        print_info "No AUR updates found."
+    else
+        print_info "Building and installing AUR updates..."
+        for pkg in "${aur_updates[@]}"; do
+            build_dir="${BUILD_DIR}/${pkg}"
+            rm -rf "$build_dir"
+            mkdir -p "$build_dir"
+            cd "$build_dir" || exit 1
+            print_info "Cloning $pkg from AUR..."
+            git clone --depth 1 "https://aur.archlinux.org/${pkg}.git" .
+            print_info "Building and installing $pkg..."
+            makepkg -si --noconfirm
+        done
+    fi
+
+    print_info "Full system upgrade complete."
+}
+
+install_packages() {
+    packages=("$@")
+    for pkg in "${packages[@]}"; do
+        print_info "Installing $pkg (checking if update needed)..."
+        if pacman -Q "$pkg" &>/dev/null; then
+            # Check if AUR package with update
+            aur_info=$(curl -s "${AUR_URL}/rpc/?v=5&type=info&arg=${pkg}")
+            aur_ver=$(echo "$aur_info" | jq -r '.results.Version // empty')
+            local_ver=$(pacman -Q "$pkg" | awk '{print $2}')
+            if [[ -n "$aur_ver" && "$aur_ver" != "$local_ver" ]]; then
+                print_info "AUR update found for $pkg: $local_ver -> $aur_ver"
+                build_dir="${BUILD_DIR}/${pkg}"
+                rm -rf "$build_dir"
+                mkdir -p "$build_dir"
+                cd "$build_dir" || exit 1
+                git clone --depth 1 "https://aur.archlinux.org/${pkg}.git" .
+                makepkg -si --noconfirm
+            else
+                print_info "$pkg is up to date, skipping reinstall."
+            fi
+        else
+            print_info "$pkg not installed, installing from repos/AUR..."
+            sudo pacman -S --noconfirm "$pkg" || {
+                # Try AUR fallback
+                build_dir="${BUILD_DIR}/${pkg}"
+                rm -rf "$build_dir"
+                mkdir -p "$build_dir"
+                cd "$build_dir" || exit 1
+                git clone --depth 1 "https://aur.archlinux.org/${pkg}.git" .
+                makepkg -si --noconfirm
+            }
+        fi
+    done
+}
+
+remove_packages() {
+    packages=("$@")
+    print_info "Removing packages: ${packages[*]}"
+    sudo pacman -Rns --noconfirm "${packages[@]}"
+}
+
+update_system() {
+    print_info "Synchronizing package databases..."
+    sudo pacman -Sy
+}
+
+search_packages() {
+    query="$*"
+    if [[ -z "$query" ]]; then
+        print_error "Please specify a search term."
+        exit 1
+    fi
+
+    print_info "Searching official repos..."
+    pacman -Ss "$query"
+
+    print_info "Searching AUR..."
+    aur_search=$(curl -s "${AUR_URL}/rpc/?v=5&type=search&arg=${query}")
+    results=$(echo "$aur_search" | jq -r '.results | .[] | "\(.Name) - \(.Description)"')
+    if [[ -z "$results" ]]; then
+        print_info "No AUR packages found for '$query'."
+    else
+        echo "$results"
+    fi
+}
+
+usage() {
+    cat <<EOF
+Usage: yak [options] [packages...]
+
+Options:
+  -S         Install packages from repos or AUR
+  -Rns       Remove packages with dependencies
+  -Sy        Sync package databases
+  -Syu       Full system upgrade including AUR packages
+  -Ss        Search packages
+  -V         Show yak version
+  -h         Show this help message
+
+Examples:
+  yak -S package_name
+  yak -Syu
+  yak -Rns package_name
+EOF
+}
+
+# Detect combined -Syu early
+if [[ " $* " == *" -Syu "* ]]; then
+    full_upgrade
+    exit 0
+fi
+
+if [[ $# -eq 0 ]]; then
+    usage
+    exit 0
+fi
+
+# Manual parsing because of multi-letter flags like -Rns and combined flags
+case "$1" in
+    -S)
+        shift
+        if [[ $# -eq 0 ]]; then
+            print_error "Please specify package(s) to install."
+            exit 1
+        fi
+        install_packages "$@"
+        ;;
+    -Rns)
+        shift
+        if [[ $# -eq 0 ]]; then
+            print_error "Please specify package(s) to remove."
+            exit 1
+        fi
+        remove_packages "$@"
+        ;;
+    -Sy)
+        update_system
+        ;;
+    -Ss)
+        shift
+        search_packages "$@"
+        ;;
+    -V)
+        echo "$version"
+        ;;
+    -h)
+        usage
+        ;;
+    *)
+        print_error "Unknown option: $1"
+        usage
+        exit 1
+        ;;
+esac
