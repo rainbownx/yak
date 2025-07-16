@@ -22,3 +22,13 @@ To install `yak` manually without an AUR helper:
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/rainbownx/yak/main/install.sh)
+```
+
+## 📦 Install a older version of yak
+To install a older version of yak, (e.g v1.0.0) first clone the repo:
+```bash
+git clone https://github.com/rainbownx/yak.git
+cd yak
+sudo mv yak-X.X.X (Replace X.X.X with the actual version number e.g yak-1.0.0) /usr/bin/yak
+```
+ 
